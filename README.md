@@ -1,8 +1,8 @@
 # Popup Image Browser
 
-A local, single-user tool for browsing every `popup:*` image stored in a MongoDB collection, with filtering, a "next available id" lookup, and a raw-document inspector.
+A tool for browsing every `popup:*` image stored in a MongoDB collection, with filtering, a "next available id" lookup, and a raw-document inspector.
 
-It's a plain Node/Express backend with a no-build, no-framework HTML/JS/CSS front end. Everything runs on `127.0.0.1` only — nothing is exposed beyond your own machine.
+It's a plain Node/Express backend with a no-build, no-framework HTML/JS/CSS front end. It runs in two modes from the same code: **locally on your own machine** (the default — binds to `127.0.0.1` only, no login) or **hosted for a small team** behind a shared passphrase, with each logged-in person getting their own isolated database connection (see [Hosting](#hosting-for-a-team) below).
 
 ## Why
 
@@ -37,6 +37,25 @@ All launchers install dependencies automatically on first run if `node_modules` 
 
 - Node.js 18+
 - A MongoDB connection string with read access to the target database
+
+## Hosting for a team
+
+The same server can run as a real hosted web app instead of a local-only tool. Two things change automatically the moment an `APP_PASSWORD` environment variable is set:
+
+1. A login screen gates the entire app behind that shared passphrase.
+2. Each logged-in browser session gets its **own isolated MongoDB connection** — one teammate connecting to database A can never see database B's data through another teammate's session, even if both are using the app at the same time. Sessions (and their connections) are automatically cleaned up after ~45 minutes of inactivity.
+
+Nobody's database credentials are ever stored on the server — each person still pastes their own MongoDB URI after logging in, exactly like the local version, just now scoped safely to their own session instead of a shared global connection.
+
+### Deploying to Render
+
+`render.yaml` in this repo is a ready-to-use [Render](https://render.com) Blueprint:
+
+1. In the Render dashboard, create a new **Blueprint** and point it at this repo.
+2. Render will detect `render.yaml` and provision a free web service automatically. `SESSION_SECRET` is auto-generated; you'll be prompted to enter `APP_PASSWORD` yourself (it's marked `sync: false` deliberately, so it's never written into the repo or Render's blueprint file).
+3. Once deployed, share the Render URL and the passphrase with your team.
+
+The free tier spins the service down after inactivity (a ~30–60s cold start on the next request after idling); upgrade the plan in the Render dashboard if you want it always warm.
 
 ## Architecture
 

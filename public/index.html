@@ -7,7 +7,18 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <div id="connect-screen" class="screen">
+  <div id="login-screen" class="screen hidden">
+    <h1>Popup Image Browser</h1>
+    <p class="hint">This deployment is password-protected. Enter the shared team passphrase to continue.</p>
+    <label>
+      Passphrase
+      <input id="login-password-input" type="password" autocomplete="current-password" />
+    </label>
+    <button id="login-btn">Log In</button>
+    <p id="login-error" class="error"></p>
+  </div>
+
+  <div id="connect-screen" class="screen hidden">
     <h1>Popup Image Browser</h1>
     <p class="hint">
       Paste your MongoDB connection URI below. It is used only to open a local
@@ -50,6 +61,7 @@
         Hide Duplicate Popups
       </label>
       <button id="next-id-btn" type="button" class="side-btn">Next Available ID</button>
+      <button id="logout-btn" type="button" class="side-btn hidden">Log Out</button>
       <span id="counter">0 / 0</span>
     </div>
     <p id="filter-empty-hint" class="hint hidden"></p>

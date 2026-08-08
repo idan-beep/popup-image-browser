@@ -1,5 +1,8 @@
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
+const session = require('express-session');
+const rateLimit = require('express-rate-limit');
 const { MongoClient } = require('mongodb');
 
 const PORT = process.env.PORT || 5177;
@@ -13,6 +16,18 @@ const DYNAMIC_SALE_TYPES = ['1', '2', '3'];
 
 const POPUP_ID_PATTERN = /^popup:(\d+)$/;
 const MIN_AVAILABLE_POPUP_ID = 10000;
+
+// Auth only activates when APP_PASSWORD is set (i.e. a real hosted deployment).
+// Local single-user usage via the one-click launchers has no env vars set, so
+// it behaves exactly as before: no login screen, connect straight away.
+const AUTH_ENABLED = Boolean(process.env.APP_PASSWORD);
+
+// Binding to all interfaces is only safe once auth is actually gating every
+// route — never widen this independently of AUTH_ENABLED.
+const HOST = AUTH_ENABLED ? '0.0.0.0' : '127.0.0.1';
+
+const SESSION_IDLE_MS = 45 * 60 * 1000;
+const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 function computeAvailability(existingIds, { limit = 5, start = MIN_AVAILABLE_POPUP_ID } = {}) {
   const taken = new Set();
@@ -35,20 +50,103 @@ function computeAvailability(existingIds, { limit = 5, start = MIN_AVAILABLE_POP
   };
 }
 
-const app = express();
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-
-let client = null;
-let db = null;
-
 function log(...args) {
   console.log(`[${new Date().toISOString()}]`, ...args);
 }
 
 const DB_NAME = 'sweepStakes';
 
-app.post('/connect', async (req, res) => {
+const app = express();
+app.set('trust proxy', 1);
+app.use(express.json());
+
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+    resave: false,
+    saveUninitialized: true,
+    rolling: true,
+    cookie: {
+      httpOnly: true,
+      secure: 'auto',
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000,
+    },
+  })
+);
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Per-session MongoDB connections. Never a shared/global client+db — each
+// browser session gets its own isolated connection, keyed by session id, so
+// one person's connected database can never leak into another session's
+// requests. Idle sessions have their connection closed and evicted after
+// SESSION_IDLE_MS so tabs left open don't hold connections forever.
+const connections = new Map();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, entry] of connections) {
+    if (now - entry.lastUsed > SESSION_IDLE_MS) {
+      log(`session: evicting idle connection for session ${sessionId}`);
+      entry.client.close().catch(() => {});
+      connections.delete(sessionId);
+    }
+  }
+}, SESSION_SWEEP_INTERVAL_MS);
+
+function requireAuth(req, res, next) {
+  if (!AUTH_ENABLED || req.session.authenticated) return next();
+  res.status(401).json({ error: 'Not authenticated.' });
+}
+
+function requireDb(req, res, next) {
+  const entry = connections.get(req.session.id);
+  if (!entry) {
+    return res.status(400).json({ error: 'Not connected yet.' });
+  }
+  entry.lastUsed = Date.now();
+  req.db = entry.db;
+  next();
+}
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Try again later.' },
+});
+
+app.get('/api/session', (req, res) => {
+  res.json({
+    authEnabled: AUTH_ENABLED,
+    authenticated: AUTH_ENABLED ? Boolean(req.session.authenticated) : true,
+  });
+});
+
+app.post('/api/login', loginLimiter, (req, res) => {
+  if (!AUTH_ENABLED) {
+    return res.json({ ok: true });
+  }
+  const { password } = req.body || {};
+  if (typeof password === 'string' && password === process.env.APP_PASSWORD) {
+    req.session.authenticated = true;
+    return res.json({ ok: true });
+  }
+  res.status(401).json({ error: 'Incorrect password.' });
+});
+
+app.post('/api/logout', (req, res) => {
+  const entry = connections.get(req.session.id);
+  if (entry) {
+    entry.client.close().catch(() => {});
+    connections.delete(req.session.id);
+  }
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
+app.post('/connect', requireAuth, async (req, res) => {
   const { uri } = req.body || {};
   if (!uri || typeof uri !== 'string') {
     return res.status(400).json({ error: 'Missing connection URI.' });
@@ -56,7 +154,7 @@ app.post('/connect', async (req, res) => {
 
   log('connect: request received');
   const start = Date.now();
-  const previousClient = client;
+  const previous = connections.get(req.session.id);
   try {
     const newClient = new MongoClient(uri, {
       serverSelectionTimeoutMS: CONNECT_SERVER_SELECTION_MS,
@@ -65,12 +163,11 @@ app.post('/connect', async (req, res) => {
     const newDb = newClient.db(DB_NAME);
     await newDb.command({ ping: 1 });
 
-    client = newClient;
-    db = newDb;
-    if (previousClient) await previousClient.close().catch(() => {});
+    connections.set(req.session.id, { client: newClient, db: newDb, lastUsed: Date.now() });
+    if (previous) await previous.client.close().catch(() => {});
 
-    log(`connect: success, db="${db.databaseName}" (${Date.now() - start}ms)`);
-    res.json({ ok: true, dbName: db.databaseName });
+    log(`connect: success, db="${newDb.databaseName}" (${Date.now() - start}ms)`);
+    res.json({ ok: true, dbName: newDb.databaseName });
   } catch (err) {
     log(`connect: failed after ${Date.now() - start}ms —`, err.message);
     res.status(500).json({
@@ -85,10 +182,8 @@ function describeShape(value) {
   return typeof value;
 }
 
-app.get('/api/debug', async (req, res) => {
-  if (!db) {
-    return res.status(400).json({ error: 'Not connected yet.' });
-  }
+app.get('/api/debug', requireAuth, requireDb, async (req, res) => {
+  const db = req.db;
   log('debug: request received');
   const start = Date.now();
   try {
@@ -136,10 +231,8 @@ app.get('/api/debug', async (req, res) => {
   }
 });
 
-app.get('/api/images', async (req, res) => {
-  if (!db) {
-    return res.status(400).json({ error: 'Not connected yet.' });
-  }
+app.get('/api/images', requireAuth, requireDb, async (req, res) => {
+  const db = req.db;
   log('images: query started');
   const start = Date.now();
   try {
@@ -283,10 +376,8 @@ app.get('/api/images', async (req, res) => {
   }
 });
 
-app.get('/api/next-available-id', async (req, res) => {
-  if (!db) {
-    return res.status(400).json({ error: 'Not connected yet.' });
-  }
+app.get('/api/next-available-id', requireAuth, requireDb, async (req, res) => {
+  const db = req.db;
   log('next-available-id: request received');
   const start = Date.now();
   try {
@@ -305,10 +396,8 @@ app.get('/api/next-available-id', async (req, res) => {
   }
 });
 
-app.get('/api/manager/:id', async (req, res) => {
-  if (!db) {
-    return res.status(400).json({ error: 'Not connected yet.' });
-  }
+app.get('/api/manager/:id', requireAuth, requireDb, async (req, res) => {
+  const db = req.db;
   log(`manager: fetching _id=${req.params.id}`);
   const start = Date.now();
   try {
@@ -327,10 +416,8 @@ app.get('/api/manager/:id', async (req, res) => {
   }
 });
 
-app.get('/api/explain/:id', async (req, res) => {
-  if (!db) {
-    return res.status(400).json({ error: 'Not connected yet.' });
-  }
+app.get('/api/explain/:id', requireAuth, requireDb, async (req, res) => {
+  const db = req.db;
   const id = req.params.id;
   log(`explain: checking _id=${id}`);
   const start = Date.now();
@@ -420,6 +507,8 @@ app.get('/api/explain/:id', async (req, res) => {
   }
 });
 
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`Popup image browser running at http://127.0.0.1:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(
+    `Popup image browser running at http://${HOST}:${PORT} (auth ${AUTH_ENABLED ? 'enabled' : 'disabled'})`
+  );
 });

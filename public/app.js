@@ -553,3 +553,72 @@ document.addEventListener('keydown', (e) => {
     backToGrid();
   }
 });
+
+async function login() {
+  const password = el('login-password-input').value;
+  el('login-error').textContent = '';
+  el('login-btn').disabled = true;
+  el('login-btn').textContent = 'Logging in...';
+
+  try {
+    const res = await fetchWithTimeout(
+      '/api/login',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      },
+      CONNECT_TIMEOUT_MS
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed.');
+
+    el('login-password-input').value = '';
+    el('login-screen').classList.add('hidden');
+    el('connect-screen').classList.remove('hidden');
+  } catch (err) {
+    el('login-error').textContent =
+      err.name === 'AbortError' ? 'Login request timed out.' : err.message;
+  } finally {
+    el('login-btn').disabled = false;
+    el('login-btn').textContent = 'Log In';
+  }
+}
+
+async function logout() {
+  try {
+    await fetchWithTimeout('/api/logout', { method: 'POST' }, CONNECT_TIMEOUT_MS);
+  } catch (err) {
+    // proceed regardless — reloading will re-check session state either way
+  }
+  window.location.reload();
+}
+
+async function boot() {
+  try {
+    const res = await fetchWithTimeout('/api/session', {}, CONNECT_TIMEOUT_MS);
+    const data = await res.json();
+
+    if (data.authEnabled) {
+      el('logout-btn').classList.remove('hidden');
+    }
+
+    if (data.authEnabled && !data.authenticated) {
+      el('login-screen').classList.remove('hidden');
+    } else {
+      el('connect-screen').classList.remove('hidden');
+    }
+  } catch (err) {
+    // If the session check itself fails, fall back to the connect screen —
+    // matches pre-auth behavior rather than leaving the page blank.
+    el('connect-screen').classList.remove('hidden');
+  }
+}
+
+el('login-btn').addEventListener('click', login);
+el('login-password-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') login();
+});
+el('logout-btn').addEventListener('click', logout);
+
+boot();

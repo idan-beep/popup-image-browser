@@ -4,30 +4,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A local, single-user tool for browsing every `popup:*` image stored in a MongoDB Atlas "stage" database, with filtering, a "next available id" lookup, and a raw-document inspector. It's a plain Node/Express backend with a no-build, no-framework HTML/JS/CSS front end (`public/`). Everything runs on `127.0.0.1` only.
+A tool for browsing every `popup:*` image stored in a MongoDB Atlas "stage" database, with filtering, a "next available id" lookup, and a raw-document inspector. It's a plain Node/Express backend with a no-build, no-framework HTML/JS/CSS front end (`public/`). It runs in two modes from the same codebase — see "Two run modes" below.
 
 ## Commands
 
 ```bash
-npm install       # install deps (express, mongodb)
+npm install       # install deps (express, express-session, express-rate-limit, mongodb)
 npm start         # run the server on :5177 (or $PORT), node server.js
 ```
 
 There is no lint step, no build step, and no test suite in this repo.
 
-One-click launchers (all just run `npm install` if needed, start `node server.js`, and open the browser to `http://127.0.0.1:5177`):
+One-click launchers, local mode only (all just run `npm install` if needed, start `node server.js`, and open the browser to `http://127.0.0.1:5177`):
 - `Open Popup Image Browser.command` — macOS, opens in a visible Terminal window (use this one when you need to see live server logs).
 - `Popup Image Browser.app` — macOS, no visible terminal window. Its `Contents/MacOS/launcher` script explicitly prepends `/usr/local/bin:/opt/homebrew/bin:/opt/local/bin` to `PATH` — GUI-launched apps get a much sparser `PATH` than a Terminal session, so without this `node` isn't found. If this app's icon doesn't refresh after editing `Contents/Resources/AppIcon.icns`, that's a Finder icon-cache issue, not a bundle problem — `touch` the bundle and re-run `lsregister -f`.
 - `Popup Image Browser.vbs` / `Open Popup Image Browser (Windows).bat` — Windows equivalents (untested on real Windows; written by hand-verifying VBScript/batch quoting since no Windows environment was available to run them).
 
 Server logs go to stdout when run via `npm start`/`.command`, or to `server.log` next to `server.js` when launched via the hidden launchers.
 
+## Two run modes
+
+The same `server.js` behaves differently depending on whether `APP_PASSWORD` is set, controlled by the single `AUTH_ENABLED` flag at the top of the file:
+
+- **Local mode** (`APP_PASSWORD` unset — the default for anyone running this on their own machine): no login screen, binds to `127.0.0.1` only, behaves exactly like the original single-user tool.
+- **Hosted mode** (`APP_PASSWORD` set — used for the Render deployment, see `render.yaml`): a login screen gates the whole app behind a shared team passphrase, the server binds to `0.0.0.0` (required for a cloud host's proxy to reach it), and every MongoDB connection is isolated per browser session (see below) instead of one shared global connection.
+
+**Never decouple the bind address from `AUTH_ENABLED`.** The `HOST` constant is deliberately derived from it (`AUTH_ENABLED ? '0.0.0.0' : '127.0.0.1'`) so it's structurally impossible to widen the bind address without auth also being on.
+
 ## Architecture
 
-**`server.js`** — single-file Express app. Holds a **module-level `client`/`db`** (not per-session, not pooled) — one browser tab's `/connect` call replaces the connection for the whole process. `DB_NAME` is hardcoded to `'sweepStakes'` server-side (not client-configurable) — the connect form only asks for the MongoDB URI. All routes 400 with "Not connected yet" until `/connect` succeeds.
+**`server.js`** — single-file Express app. There is **no shared global `client`/`db`** — each browser session gets its own entry in an in-memory `connections` `Map`, keyed by `express-session` id: `{ client, db, lastUsed }`. A `requireDb` middleware looks up the caller's own entry and 400s with "Not connected yet" if there isn't one; nothing ever falls back to another session's connection. A periodic sweep (`SESSION_SWEEP_INTERVAL_MS`) closes and evicts any session's connection after `SESSION_IDLE_MS` of inactivity. `DB_NAME` is hardcoded to `'sweepStakes'` server-side (not client-configurable) — the connect form only asks for the MongoDB URI.
+
+In hosted mode, a `requireAuth` middleware (checking `req.session.authenticated`, set by `POST /api/login` against `process.env.APP_PASSWORD`) gates every route below except the static frontend files and `/api/login` itself. `POST /api/logout` destroys the session and closes that session's MongoDB connection. In local mode `requireAuth` is a no-op — see "Two run modes".
 
 Routes:
-- `POST /connect` — `{ uri }` only. Opens a fresh `MongoClient`, pings `sweepStakes`, swaps it in, closes the previous client. The URI is never logged, written to disk, or echoed back.
+- `GET /api/session` — `{ authEnabled, authenticated }`, polled by the frontend on load to decide whether to show the login screen.
+- `POST /api/login` / `POST /api/logout` — passphrase check (rate-limited via `express-rate-limit`) and session teardown. No-ops in local mode.
+- `POST /connect` — `{ uri }` only. Opens a fresh `MongoClient` scoped to the caller's session, pings `sweepStakes`, stores it in `connections`, closes that same session's previous client if reconnecting. The URI is never logged, written to disk, or echoed back.
 - `GET /api/images` — the main aggregation (see below). Returns `{ results, truncated }`, capped at `RESULT_CAP` (20000).
 - `GET /api/next-available-id` — finds the lowest unused `popup:<N>` at/above 10000 (ported from a sibling standalone finder tool's `computeAvailability` function). Powers the "Next Available ID" modal.
 - `GET /api/manager/:id` — raw `findOne` by `_id`, backs the viewer's "Full document" panel.
@@ -44,13 +57,15 @@ Routes:
 7. **No server-side deduplication** — every `(docId, src)` pair is returned as its own row, even if two different documents (of either image-source shape) reference the exact same `src`. Deduping is a client-side, opt-in toggle (see below), not a server default.
 
 **`public/`** — single page, two view modes toggled via `state.mode` (`'grid'` | `'viewer'`), no router, no framework:
-- `index.html` / `style.css` — connect screen, then a sticky toolbar (search + 1PO/2PO/3PO + Static/Dynamic + General/BT/SC/GC + "Hide Duplicate Popups" checkbox + "Next Available ID") above either the thumbnail grid or the single-image viewer.
+- `index.html` / `style.css` — `boot()` in `app.js` calls `GET /api/session` on load and shows the login screen only if `authEnabled && !authenticated` (always false in local mode, so the login screen never appears there); otherwise goes straight to the connect screen, then a sticky toolbar (search + 1PO/2PO/3PO + Static/Dynamic + General/BT/SC/GC + "Hide Duplicate Popups" checkbox + "Next Available ID" + "Log Out" when auth is enabled) above either the thumbnail grid or the single-image viewer.
 - `app.js` — `state.all` holds every raw row from `/api/images`; `applyFilter()` derives `state.filtered` by: optionally deduping client-side via `dedupeBySrc()` (only when the "Hide Duplicate Popups" checkbox is checked — **unchecked by default**, so duplicates show by default) using "lowest `_id` wins" as the tie-break, then AND-ing the text search with whichever filter-button groups are active (multiple buttons within one group are OR'd together). If a search matching `popup:` prefix returns zero results, it debounces a call to `/api/explain/:id` and — deliberately terse — shows *only* a "shared with N other popup(s): ..." line if that's the reason, and stays silent for every other reason (by design, not a bug).
 - Grid thumbnails lazy-load via a shared `IntersectionObserver`. The viewer screen fetches the full raw document (`/api/manager/:id`) on every navigation and shows it in a `<pre>`, plus a Copy-to-clipboard button next to the `_id`.
 - The "Next Available ID" button opens a small modal (`#next-id-modal-backdrop`) — closeable via its ✕ button, a backdrop click, or Escape; this is the one place in the app with a modal/overlay pattern.
 
 ## Non-obvious constraints to preserve
 
-- **Never widen the server bind address** beyond `127.0.0.1` — it accepts a raw MongoDB URI over HTTP with no auth of its own.
-- **Never persist the URI** anywhere (disk, `localStorage`, logs) — it lives only in the browser's in-memory form field for the duration of one `/connect` call.
+- **Never decouple the bind address from `AUTH_ENABLED`.** Binding to all interfaces is only safe because every route is also gated behind login in that same mode — don't widen `HOST` independently of it.
+- **Never go back to a shared global `client`/`db`.** Every route must resolve its database through the caller's own session (`requireDb`/`connections`), never a module-level variable — that's the whole fix for one user's connection leaking into another's requests. If you add a new route that touches MongoDB, route it through `requireDb`, not a fresh global.
+- **Never persist the URI** anywhere (disk, `localStorage`, logs) — it lives only in the browser's in-memory form field for the duration of one `/connect` call, and server-side only in that session's in-memory `connections` entry (never written to disk).
+- **Never store `APP_PASSWORD`/`SESSION_SECRET` in the repo** — they're set as environment variables/secrets on the hosting platform (see `render.yaml`, which marks `APP_PASSWORD` as `sync: false` deliberately).
 - Every MongoDB query that can run on a large collection has an explicit `maxTimeMS` and a client-side `AbortController` timeout (`fetchWithTimeout` in `app.js`) — this app was built against a slow/large real collection, and a past regression here silently made things "look stuck" with no error. Don't remove these without replacing them with something equivalent.
