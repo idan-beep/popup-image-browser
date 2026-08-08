@@ -1,0 +1,19 @@
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$DIR" || exit 1
+
+export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/local/bin:$PATH"
+
+PORT=5177
+LOG="$DIR/server.log"
+
+if ! curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT"; then
+  if [ ! -d node_modules ]; then
+    npm install >> "$LOG" 2>&1
+  fi
+  nohup node server.js >> "$LOG" 2>&1 &
+  disown
+  sleep 1
+fi
+
+open "http://127.0.0.1:$PORT"

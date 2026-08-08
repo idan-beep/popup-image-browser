@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Popup Image Browser</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="connect-screen" class="screen">
+    <h1>Popup Image Browser</h1>
+    <p class="hint">
+      Paste your MongoDB connection URI below. It is used only to open a local
+      connection from this tool and is never saved to disk or sent anywhere
+      else.
+    </p>
+    <label>
+      Connection URI
+      <input
+        id="uri-input"
+        type="password"
+        placeholder="mongodb+srv://user:pass@cluster.../"
+        autocomplete="off"
+      />
+    </label>
+    <button id="connect-btn">Connect</button>
+    <p id="connect-error" class="error"></p>
+  </div>
+
+  <div id="app-screen" class="app-screen hidden">
+    <div class="toolbar">
+      <input id="filter-input" type="text" placeholder="Filter by key or filename..." />
+      <div id="formatter-filter" class="formatter-filter">
+        <button type="button" class="formatter-btn" data-formatter="1">1PO</button>
+        <button type="button" class="formatter-btn" data-formatter="2">2PO</button>
+        <button type="button" class="formatter-btn" data-formatter="3">3PO</button>
+      </div>
+      <div id="sale-category-filter" class="formatter-filter">
+        <button type="button" class="formatter-btn" data-sale-category="static">Static</button>
+        <button type="button" class="formatter-btn" data-sale-category="dynamic">Dynamic</button>
+      </div>
+      <div id="type-filter" class="formatter-filter">
+        <button type="button" class="formatter-btn" data-type="general">General</button>
+        <button type="button" class="formatter-btn" data-type="boxTokensMultiple">BT</button>
+        <button type="button" class="formatter-btn" data-type="coinsMultiple">SC</button>
+        <button type="button" class="formatter-btn" data-type="gcMultiple">GC</button>
+      </div>
+      <label class="checkbox-label">
+        <input type="checkbox" id="hide-duplicates-checkbox" />
+        Hide Duplicate Popups
+      </label>
+      <button id="next-id-btn" type="button" class="side-btn">Next Available ID</button>
+      <span id="counter">0 / 0</span>
+    </div>
+    <p id="filter-empty-hint" class="hint hidden"></p>
+    <p id="truncated-banner" class="banner hidden"></p>
+    <div id="diagnostics" class="banner hidden"></div>
+
+    <div id="grid-screen">
+      <div id="loading-status-grid" class="loading-status hidden">
+        <div class="spinner"></div>
+        <span id="loading-text-grid">Loading images...</span>
+      </div>
+      <div id="thumbnail-grid" class="thumbnail-grid"></div>
+    </div>
+
+    <div id="viewer-screen" class="hidden">
+      <button id="back-btn" class="back-btn">← Back to grid</button>
+      <div class="image-frame">
+        <img id="main-image" alt="" />
+      </div>
+      <div class="caption">
+        <div>
+          <strong>_id:</strong> <span id="cap-key"></span>
+          <button id="copy-id-btn" type="button" class="copy-btn">Copy</button>
+        </div>
+        <div><strong>Type:</strong> <span id="cap-type"></span></div>
+        <div><strong>PO tier (dynamicPrices count):</strong> <span id="cap-formatter"></span></div>
+        <div><strong>Sale category (saleType):</strong> <span id="cap-sale-category"></span></div>
+        <div class="src-line"><strong>src:</strong> <span id="cap-src"></span></div>
+      </div>
+      <p class="hint">Use ↑/↓ or ←/→ to move between images.</p>
+      <div class="doc-panel">
+        <div class="doc-panel-title">Full document</div>
+        <pre id="doc-content" class="doc-content">Loading...</pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="next-id-modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span>Next available popup ID</span>
+        <button id="next-id-close-btn" type="button" class="modal-close-btn" aria-label="Close">✕</button>
+      </div>
+      <div id="next-id-body" class="modal-body">Loading...</div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

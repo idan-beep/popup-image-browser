@@ -1,0 +1,14 @@
+{
+  "name": "popup-image-browser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local tool to browse popup:* images from the managers collection.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mongodb": "^6.8.0"
+  }
+}
