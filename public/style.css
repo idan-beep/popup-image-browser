@@ -180,8 +180,15 @@ button:disabled {
   word-break: break-word;
 }
 
+.image-with-prizes {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
 .image-frame {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   min-height: 360px;
   background: #1e2126;
   border: 1px solid #2c2f36;
@@ -409,6 +416,34 @@ button:disabled {
 
 .back-btn:hover {
   border-color: #5b8def;
+}
+
+.prizes-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.prize-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #1e2126;
+  border: 1px solid #2c2f36;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.prize-item img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.prize-item span {
+  font-size: 0.85rem;
+  color: #c7cad0;
 }
 
 .doc-panel {

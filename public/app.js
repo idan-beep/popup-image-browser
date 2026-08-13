@@ -431,9 +431,43 @@ function renderViewerImage() {
 
 let docFetchController = null;
 
+function renderPrizesRow(resolvedPrizes) {
+  const row = el('prizes-row');
+  row.innerHTML = '';
+
+  if (!resolvedPrizes || resolvedPrizes.length === 0) {
+    row.classList.add('hidden');
+    return;
+  }
+
+  resolvedPrizes.forEach((prize) => {
+    const item = document.createElement('div');
+    item.className = 'prize-item';
+    item.title = `group ${prize.group}`;
+
+    if (prize.iconUrl) {
+      const img = document.createElement('img');
+      img.src = prize.iconUrl;
+      img.alt = '';
+      item.appendChild(img);
+    }
+
+    if (prize.amount != null) {
+      const span = document.createElement('span');
+      span.textContent = prize.amount;
+      item.appendChild(span);
+    }
+
+    row.appendChild(item);
+  });
+
+  row.classList.remove('hidden');
+}
+
 async function loadFullDocument(id) {
   const pre = el('doc-content');
   pre.textContent = 'Loading...';
+  renderPrizesRow(null);
 
   if (docFetchController) docFetchController.abort();
   docFetchController = new AbortController();
@@ -445,6 +479,7 @@ async function loadFullDocument(id) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to load document.');
     pre.textContent = JSON.stringify(data.doc, null, 2);
+    renderPrizesRow(data.resolvedPrizes);
   } catch (err) {
     if (err.name === 'AbortError') return;
     pre.textContent = `Failed to load full document: ${err.message}`;

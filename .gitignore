@@ -2,3 +2,7 @@ node_modules/
 .DS_Store
 server.log
 .claude/
+
+# Real sample documents shared for debugging — never commit real data
+popup_*.json
+managerAvailablePrizes*.json

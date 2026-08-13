@@ -17,6 +17,34 @@ const DYNAMIC_SALE_TYPES = ['1', '2', '3'];
 const POPUP_ID_PATTERN = /^popup:(\d+)$/;
 const MIN_AVAILABLE_POPUP_ID = 10000;
 
+// Which field holds a prize's quantity, and whether that field is
+// cents-denominated (÷100 before display), keyed by the prize's giftType.
+// giftTypes not listed here (including 6/30/37/39, which never carry a
+// meaningful amount) fall back to "icon only, no amount" — reverse-engineered
+// from real catalog documents, not a spec, so don't assume a gap is a bug.
+const GIFT_TYPE_AMOUNT_RULES = {
+  1: { field: 'babaCoins', cents: false },
+  8: { field: 'babaCoinsMulti', cents: false },
+  13: { field: 'amountOfGameKeys', cents: false },
+  40: { field: 'amountOfGameKeys', cents: false },
+  32: { field: 'amountOfItems', cents: true },
+  35: { field: 'amountOfItems', cents: true },
+  45: { field: 'amountOfItems', cents: true },
+  38: { field: 'gemsCent', cents: true },
+  42: { field: 'amountOfItems', cents: false },
+  43: { field: 'amountOfItems', cents: false },
+  44: { field: 'amountOfItems', cents: false },
+};
+
+// Precedence when the same prize id is defined in more than one catalog:
+// earlier entries win. Merge logic in resolveAvailablePrizes() depends on
+// this exact ordering — see the comment there before reordering this list.
+const AVAILABLE_PRIZES_CATALOG_IDS = [
+  'managerAvailablePrizes',
+  'managerAvailablePrizes:100',
+  'managerAvailablePrizesCards:0',
+];
+
 // Auth only activates when APP_PASSWORD is set (i.e. a real hosted deployment).
 // Local single-user usage via the one-click launchers has no env vars set, so
 // it behaves exactly as before: no login screen, connect straight away.
@@ -175,6 +203,70 @@ app.post('/connect', requireAuth, async (req, res) => {
     });
   }
 });
+
+function computePrizeAmount(prize) {
+  const rule = GIFT_TYPE_AMOUNT_RULES[prize.giftType];
+  if (!rule) return null;
+  const raw = prize[rule.field];
+  if (typeof raw !== 'number') return null;
+  const value = rule.cents ? raw / 100 : raw;
+  return value.toLocaleString('en-US');
+}
+
+// Merges both catalog docs' availablePrizes[] into one id -> prize lookup,
+// then resolves the viewed popup's availablePrizesByGroupId against it.
+// managerAvailablePrizes wins over managerAvailablePrizes:100 if the same id
+// is defined in both (rare, but possible) — never cached, since the catalog
+// can be edited by the team while this tool is in use.
+async function resolveAvailablePrizes(db, doc) {
+  const groupMap = doc.availablePrizesByGroupId;
+  if (!groupMap || typeof groupMap !== 'object' || Object.keys(groupMap).length === 0) {
+    return [];
+  }
+
+  const catalogDocs = await Promise.all(
+    AVAILABLE_PRIZES_CATALOG_IDS.map((id) =>
+      db
+        .collection('managers')
+        .findOne({ _id: id }, { maxTimeMS: DEBUG_QUERY_MAX_TIME_MS })
+        .catch(() => null)
+    )
+  );
+
+  const prizeById = new Map();
+  // Reversed so managerAvailablePrizes (first in AVAILABLE_PRIZES_CATALOG_IDS)
+  // is inserted last and therefore wins on conflicting ids.
+  for (const catalogDoc of [...catalogDocs].reverse()) {
+    if (!catalogDoc || !Array.isArray(catalogDoc.availablePrizes)) continue;
+    for (const prize of catalogDoc.availablePrizes) {
+      if (prize && prize.id != null) {
+        prizeById.set(prize.id, prize);
+      }
+    }
+  }
+
+  const resolved = [];
+  const sortedGroups = Object.entries(groupMap).sort(
+    ([a], [b]) => Number(a) - Number(b)
+  );
+  for (const [group, prizeIds] of sortedGroups) {
+    const ids = Array.isArray(prizeIds) ? prizeIds : [prizeIds];
+    for (const prizeId of ids) {
+      const prize = prizeById.get(prizeId);
+      if (!prize) {
+        log(`manager: prize id ${prizeId} (group ${group}) not found in either catalog`);
+        continue;
+      }
+      resolved.push({
+        group,
+        prizeId,
+        iconUrl: prize.iconUrl || null,
+        amount: computePrizeAmount(prize),
+      });
+    }
+  }
+  return resolved;
+}
 
 function describeShape(value) {
   if (Array.isArray(value)) return `array(${value.length})`;
@@ -411,7 +503,9 @@ app.get('/api/manager/:id', requireAuth, requireDb, async (req, res) => {
     if (!doc) {
       return res.status(404).json({ error: 'Document not found.' });
     }
-    res.json({ doc });
+
+    const resolvedPrizes = await resolveAvailablePrizes(db, doc);
+    res.json({ doc, resolvedPrizes });
   } catch (err) {
     log(`manager: failed after ${Date.now() - start}ms —`, err.message);
     res.status(500).json({ error: 'Failed to fetch document.' });
