@@ -248,7 +248,7 @@ function backToGrid() {
   state.mode = 'grid';
   el('viewer-screen').classList.add('hidden');
   el('grid-screen').classList.remove('hidden');
-  el('counter').textContent = `${state.filtered.length} image${state.filtered.length === 1 ? '' : 's'}`;
+  renderGrid();
   window.scrollTo(0, state.gridScrollTop);
 }
 
@@ -260,10 +260,20 @@ function applyFilter() {
   const activeTypes = state.activeTypes;
   const hideDuplicates = el('hide-duplicates-checkbox').checked;
 
+  // Capture the exact item being viewed (by reference) before recomputing,
+  // so we can try to keep showing it after the filter changes rather than
+  // jumping to whatever lands at index 0 of the new results.
+  const previousItem = state.mode === 'viewer' ? state.filtered[state.index] : null;
+
   const base = hideDuplicates ? dedupeBySrc(state.all) : state.all;
 
   state.filtered = base.filter((r) => {
-    if (q && !r.key.toLowerCase().includes(q) && !r.src.toLowerCase().includes(q)) {
+    if (
+      q &&
+      !r.key.toLowerCase().includes(q) &&
+      !r.src.toLowerCase().includes(q) &&
+      !(r.monitorName && r.monitorName.toLowerCase().includes(q))
+    ) {
       return false;
     }
     if (activeFormatters.size > 0 && !activeFormatters.has(r.poTier)) {
@@ -277,7 +287,6 @@ function applyFilter() {
     }
     return true;
   });
-  state.index = 0;
 
   if (state.filtered.length === 0) {
     scheduleEmptyFilterCheck(rawText);
@@ -286,8 +295,17 @@ function applyFilter() {
   }
 
   if (state.mode === 'viewer') {
-    renderViewerImage();
+    const newIndex = previousItem ? state.filtered.indexOf(previousItem) : -1;
+    if (newIndex === -1) {
+      // The popup being viewed no longer matches — nothing sensible to keep
+      // showing, so drop back to the (now up-to-date) grid instead.
+      backToGrid();
+    } else {
+      state.index = newIndex;
+      renderViewerImage();
+    }
   } else {
+    state.index = 0;
     renderGrid();
   }
 }
@@ -380,6 +398,7 @@ function renderViewerImage() {
     el('main-image').src = '';
     el('cap-key').textContent = '';
     el('copy-id-btn').classList.add('hidden');
+    el('cap-name').textContent = '';
     el('cap-type').textContent = '';
     el('cap-formatter').textContent = '';
     el('cap-sale-category').textContent = '';
@@ -395,6 +414,7 @@ function renderViewerImage() {
   el('copy-id-btn').classList.remove('copied');
   el('copy-id-btn').textContent = 'Copy';
   el('copy-id-btn').dataset.id = current.key;
+  el('cap-name').textContent = current.monitorName || '(none)';
   el('cap-type').textContent = current.popupType || '(none)';
   el('cap-formatter').textContent = formatterLabel(current.poTier) || '(none)';
   el('cap-sale-category').textContent = current.saleCategory || '(none)';
