@@ -272,7 +272,7 @@ function applyFilter() {
       q &&
       !r.key.toLowerCase().includes(q) &&
       !r.src.toLowerCase().includes(q) &&
-      !(r.monitorName && r.monitorName.toLowerCase().includes(q))
+      !(r.monitorSalesType && r.monitorSalesType.toLowerCase().includes(q))
     ) {
       return false;
     }
@@ -398,7 +398,7 @@ function renderViewerImage() {
     el('main-image').src = '';
     el('cap-key').textContent = '';
     el('copy-id-btn').classList.add('hidden');
-    el('cap-name').textContent = '';
+    el('cap-monitor-sales-type').textContent = '';
     el('cap-type').textContent = '';
     el('cap-formatter').textContent = '';
     el('cap-sale-category').textContent = '';
@@ -414,7 +414,7 @@ function renderViewerImage() {
   el('copy-id-btn').classList.remove('copied');
   el('copy-id-btn').textContent = 'Copy';
   el('copy-id-btn').dataset.id = current.key;
-  el('cap-name').textContent = current.monitorName || '(none)';
+  el('cap-monitor-sales-type').textContent = current.monitorSalesType || '(none)';
   el('cap-type').textContent = current.popupType || '(none)';
   el('cap-formatter').textContent = formatterLabel(current.poTier) || '(none)';
   el('cap-sale-category').textContent = current.saleCategory || '(none)';

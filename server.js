@@ -436,7 +436,7 @@ app.get('/api/images', requireAuth, requireDb, async (req, res) => {
               poTier: 1,
               saleCategory: 1,
               popupType: '$type',
-              monitorName: '$monitor.name',
+              monitorSalesType: '$monitor.salesType',
             },
           },
           { $sort: { docId: 1 } },
@@ -454,7 +454,7 @@ app.get('/api/images', requireAuth, requireDb, async (req, res) => {
       poTier: r.poTier ?? null,
       saleCategory: r.saleCategory ?? null,
       popupType: r.popupType ?? null,
-      monitorName: r.monitorName ?? null,
+      monitorSalesType: r.monitorSalesType ?? null,
     }));
 
     log(`images: query finished — ${results.length} rows${truncated ? ' (truncated)' : ''} (${Date.now() - start}ms)`);
