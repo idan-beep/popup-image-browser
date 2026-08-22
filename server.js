@@ -45,6 +45,19 @@ const AVAILABLE_PRIZES_CATALOG_IDS = [
   'managerAvailablePrizesCards:0',
 ];
 
+// ENP-style dynamicPrices entries never resolve to a real prize id, so their
+// icon(s) are hardcoded rather than looked up by giftType — temporary until
+// there's a reliable catalog-backed source for them. Most popup types show
+// both GC and SC icons; boxTokensMultiple popups reward a single currency
+// (tokens), so they show just the one Tokens icon instead, and gcMultiple
+// popups show just the one GC icon (ENP_ICON_URLS[0]) — see the doc.type
+// checks in resolveAvailablePrizes().
+const ENP_ICON_URLS = [
+  'https://s3cdn.babawildslots.com/uploadImages/PlainCoin_Icon.png', // GC
+  'https://s3cdn.babawildslots.com/uploadImages/SC_CoinIcon.png', // SC
+];
+const ENP_TOKENS_ICON_URL = 'https://s3cdn.babawildslots.com/uploadImages/StarToken_CoinIcon.png';
+
 // Auth only activates when APP_PASSWORD is set (i.e. a real hosted deployment).
 // Local single-user usage via the one-click launchers has no env vars set, so
 // it behaves exactly as before: no login screen, connect straight away.
@@ -218,6 +231,14 @@ function computePrizeAmount(prize) {
 // managerAvailablePrizes wins over managerAvailablePrizes:100 if the same id
 // is defined in both (rare, but possible) — never cached, since the catalog
 // can be edited by the team while this tool is in use.
+//
+// Returns one cluster per tier, each with its resolved catalog prizes plus,
+// when that tier's dynamicPrices entry is a placeholder string rather than a
+// number, an enpItems pair (hardcoded ENP_ICON_URLS, not looked up — see its
+// comment). dynamicPrices entries line up by position with groups sorted
+// ascending by key (dynamicPrices[0] is tier/group 1, dynamicPrices[1] is
+// tier/group 2, etc) — but the returned clusters are reversed for display,
+// so the highest tier/group renders first.
 async function resolveAvailablePrizes(db, doc) {
   const groupMap = doc.availablePrizesByGroupId;
   if (!groupMap || typeof groupMap !== 'object' || Object.keys(groupMap).length === 0) {
@@ -245,27 +266,44 @@ async function resolveAvailablePrizes(db, doc) {
     }
   }
 
-  const resolved = [];
+  const dynamicPrices = Array.isArray(doc.dynamicPrices) ? doc.dynamicPrices : [];
+
   const sortedGroups = Object.entries(groupMap).sort(
     ([a], [b]) => Number(a) - Number(b)
   );
-  for (const [group, prizeIds] of sortedGroups) {
+
+  const clusters = sortedGroups.map(([group, prizeIds], index) => {
     const ids = Array.isArray(prizeIds) ? prizeIds : [prizeIds];
+    const prizes = [];
     for (const prizeId of ids) {
       const prize = prizeById.get(prizeId);
       if (!prize) {
         log(`manager: prize id ${prizeId} (group ${group}) not found in either catalog`);
         continue;
       }
-      resolved.push({
-        group,
+      prizes.push({
         prizeId,
         iconUrl: prize.iconUrl || null,
         amount: computePrizeAmount(prize),
       });
     }
-  }
-  return resolved;
+
+    let enpItems = [];
+    const dynamicPriceEntry = dynamicPrices[index];
+    if (typeof dynamicPriceEntry === 'string') {
+      let icons = ENP_ICON_URLS;
+      if (doc.type === 'boxTokensMultiple') icons = [ENP_TOKENS_ICON_URL];
+      else if (doc.type === 'gcMultiple') icons = [ENP_ICON_URLS[0]];
+      enpItems = icons.map((iconUrl) => ({ iconUrl, text: dynamicPriceEntry }));
+    }
+
+    return { group, prizes, enpItems };
+  });
+
+  // Pairing above relies on ascending order (dynamicPrices[i] <-> the i-th
+  // group ascending), but the team wants the highest tier displayed first —
+  // so reverse only the final display order, after pairing is already done.
+  return clusters.reverse().filter((c) => c.prizes.length > 0 || c.enpItems.length > 0);
 }
 
 function describeShape(value) {

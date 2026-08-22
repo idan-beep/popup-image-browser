@@ -182,7 +182,7 @@ button:disabled {
 
 .image-with-prizes {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 16px;
 }
 
@@ -421,8 +421,20 @@ button:disabled {
 .prizes-column {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  justify-content: space-between;
   flex-shrink: 0;
+  min-width: 0;
+}
+
+.prize-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prize-enp-row {
+  display: flex;
+  gap: 10px;
 }
 
 .prize-item {
@@ -433,6 +445,10 @@ button:disabled {
   border: 1px solid #2c2f36;
   border-radius: 6px;
   padding: 6px 10px;
+}
+
+.prize-enp-pair {
+  padding: 6px 8px;
 }
 
 .prize-item img {

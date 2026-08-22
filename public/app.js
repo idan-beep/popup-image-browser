@@ -431,34 +431,56 @@ function renderViewerImage() {
 
 let docFetchController = null;
 
-function renderPrizesRow(resolvedPrizes) {
+function buildPrizeItem(iconUrl, text) {
+  const item = document.createElement('div');
+  item.className = 'prize-item';
+
+  if (iconUrl) {
+    const img = document.createElement('img');
+    img.src = iconUrl;
+    img.alt = '';
+    item.appendChild(img);
+  }
+
+  if (text != null) {
+    const span = document.createElement('span');
+    span.textContent = text;
+    item.appendChild(span);
+  }
+
+  return item;
+}
+
+function renderPrizesRow(resolvedPrizeTiers) {
   const row = el('prizes-row');
   row.innerHTML = '';
 
-  if (!resolvedPrizes || resolvedPrizes.length === 0) {
+  if (!resolvedPrizeTiers || resolvedPrizeTiers.length === 0) {
     row.classList.add('hidden');
     return;
   }
 
-  resolvedPrizes.forEach((prize) => {
-    const item = document.createElement('div');
-    item.className = 'prize-item';
-    item.title = `group ${prize.group}`;
+  resolvedPrizeTiers.forEach((tier) => {
+    const cluster = document.createElement('div');
+    cluster.className = 'prize-cluster';
+    cluster.title = `group ${tier.group}`;
 
-    if (prize.iconUrl) {
-      const img = document.createElement('img');
-      img.src = prize.iconUrl;
-      img.alt = '';
-      item.appendChild(img);
+    tier.prizes.forEach((prize) => {
+      cluster.appendChild(buildPrizeItem(prize.iconUrl, prize.amount));
+    });
+
+    if (tier.enpItems.length > 0) {
+      const enpRow = document.createElement('div');
+      enpRow.className = 'prize-enp-row';
+      tier.enpItems.forEach((enp) => {
+        const pair = buildPrizeItem(enp.iconUrl, enp.text);
+        pair.classList.add('prize-enp-pair');
+        enpRow.appendChild(pair);
+      });
+      cluster.appendChild(enpRow);
     }
 
-    if (prize.amount != null) {
-      const span = document.createElement('span');
-      span.textContent = prize.amount;
-      item.appendChild(span);
-    }
-
-    row.appendChild(item);
+    row.appendChild(cluster);
   });
 
   row.classList.remove('hidden');
