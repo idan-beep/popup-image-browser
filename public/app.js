@@ -20,6 +20,12 @@ function formatterLabel(value) {
   return FORMATTER_LABELS[value] || null;
 }
 
+// saleType 'po1h' overrides the poTier-derived label wherever it's shown
+// (grid badge, viewer caption) so it never gets shown as plain "1PO".
+function poTierBadgeLabel(item) {
+  return item.saleType === 'po1h' ? '1PO-H' : formatterLabel(item.poTier);
+}
+
 function dedupeBySrc(items) {
   const bySrc = new Map();
   for (const item of items) {
@@ -214,7 +220,7 @@ function renderGrid() {
     img.alt = item.key;
     card.appendChild(img);
 
-    const badgeLabel = formatterLabel(item.poTier);
+    const badgeLabel = poTierBadgeLabel(item);
     if (badgeLabel) {
       const badge = document.createElement('div');
       badge.className = 'thumb-badge';
@@ -425,7 +431,7 @@ function renderViewerImage() {
   el('copy-id-btn').dataset.id = current.key;
   el('cap-monitor-sales-type').textContent = current.monitorSalesType || '(none)';
   el('cap-type').textContent = current.popupType || '(none)';
-  el('cap-formatter').textContent = formatterLabel(current.poTier) || '(none)';
+  el('cap-formatter').textContent = poTierBadgeLabel(current) || '(none)';
   el('cap-sale-category').textContent = current.saleCategory || '(none)';
   el('cap-src').textContent = current.src;
 
