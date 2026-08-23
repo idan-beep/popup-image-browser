@@ -276,8 +276,11 @@ function applyFilter() {
     ) {
       return false;
     }
-    if (activeFormatters.size > 0 && !activeFormatters.has(r.poTier)) {
-      return false;
+    if (activeFormatters.size > 0) {
+      const matchesFormatter = [...activeFormatters].some((f) =>
+        f === 'po1h' ? r.saleType === 'po1h' : r.poTier === f
+      );
+      if (!matchesFormatter) return false;
     }
     if (activeSaleCategories.size > 0 && !activeSaleCategories.has(r.saleCategory)) {
       return false;
@@ -352,6 +355,12 @@ function scheduleEmptyFilterCheck(rawText) {
   }, 350);
 }
 
+// Formatter buttons are usually a poTier number ("1"/"2"/"3"), but "po1h" is
+// a raw saleType value shown alongside them — keep it as a string.
+function parseFormatterValue(raw) {
+  return raw === 'po1h' ? raw : Number(raw);
+}
+
 function toggleFormatter(value) {
   if (state.activeFormatters.has(value)) {
     state.activeFormatters.delete(value);
@@ -359,7 +368,7 @@ function toggleFormatter(value) {
     state.activeFormatters.add(value);
   }
   document.querySelectorAll('.formatter-btn[data-formatter]').forEach((btn) => {
-    const btnValue = Number(btn.dataset.formatter);
+    const btnValue = parseFormatterValue(btn.dataset.formatter);
     btn.classList.toggle('active', state.activeFormatters.has(btnValue));
   });
   applyFilter();
@@ -601,7 +610,7 @@ el('next-id-modal-backdrop').addEventListener('click', (e) => {
 });
 
 document.querySelectorAll('.formatter-btn[data-formatter]').forEach((btn) => {
-  btn.addEventListener('click', () => toggleFormatter(Number(btn.dataset.formatter)));
+  btn.addEventListener('click', () => toggleFormatter(parseFormatterValue(btn.dataset.formatter)));
 });
 
 document.querySelectorAll('.formatter-btn[data-sale-category]').forEach((btn) => {

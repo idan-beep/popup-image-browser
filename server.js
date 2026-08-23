@@ -473,6 +473,7 @@ app.get('/api/images', requireAuth, requireDb, async (req, res) => {
               src: '$designItems.image.src',
               poTier: 1,
               saleCategory: 1,
+              saleType: 1,
               popupType: '$type',
               monitorSalesType: '$monitor.salesType',
             },
@@ -491,6 +492,7 @@ app.get('/api/images', requireAuth, requireDb, async (req, res) => {
       src: r.src,
       poTier: r.poTier ?? null,
       saleCategory: r.saleCategory ?? null,
+      saleType: r.saleType ?? null,
       popupType: r.popupType ?? null,
       monitorSalesType: r.monitorSalesType ?? null,
     }));
